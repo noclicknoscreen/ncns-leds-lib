@@ -48,6 +48,12 @@ uint16_t holdTime = 0;
 // Total of leds all over the strips
 int totalNumLeds = 0;
 
+#ifdef TEST_MODE
+char serialInput_prec = ' ';
+char serialInput = ' ';
+int testIdx = 0;
+#endif
+
 /*****************************************************************
    Binking function for onboard LED
  *****************************************************************/
@@ -76,7 +82,7 @@ void setStripColor(Adafruit_NeoPixel * strip, int r, int g, int b) {
    Setting all Strips to a specific color.
  *****************************************************************/
 void SetAllStripsToColor(int r, int g, int b) {
-  // Tout à noir
+  // Tout à une couleur
   for (int i = 0; i < NUM_STRIPS; i++) {
     setStripColor(STRIPS[i], r, g, b);
   }
@@ -100,31 +106,93 @@ void initScenario() {
 }
 
 /*****************************************************************
-   Inti d'un scénario
+   Lecture du choix d'un scénario
  *****************************************************************/
 void read_choice() {
   int choix_prec = choix;
 
-  if(digitalRead(PIN_SC1) == LOW) {
+#ifdef TEST_MODE
+  int knx1, knx2, knx3, knx4;
+
+  if (TEST_MODE == 0) {
+    while (Serial.available()) {
+      serialInput = Serial.read();
+      // Dropping \n
+      if (serialInput == '\n') {
+          serialInput_prec = serialInput;
+      }
+    } 
+    if (serialInput_prec != serialInput) {
+      switch (serialInput) {
+        case '1':
+        { 
+          knx1 = LOW;
+          knx2 = HIGH;
+          knx3 = HIGH;
+          knx4 = HIGH; 
+          serialInput = serialInput_prec; 
+          break;
+        }
+        case '2':
+        { 
+          knx1 = HIGH;
+          knx2 = LOW;
+          knx3 = HIGH;
+          knx4 = HIGH; 
+          serialInput = serialInput_prec; 
+          break;
+        }
+        case '3':
+        { 
+          knx1 = HIGH;
+          knx2 = HIGH;
+          knx3 = LOW;
+          knx4 = HIGH; 
+          serialInput = serialInput_prec; 
+          break;
+        }
+        case '4':
+        { 
+          knx1 = HIGH;
+          knx2 = HIGH;
+          knx3 = HIGH;
+          knx4 = LOW; 
+          serialInput = serialInput_prec; 
+          break;
+        }
+      }
+      serialInput_prec = serialInput; 
+    }
+  }
+#endif
+
+#ifndef TEST_MODE
+  int knx1 = digitalRead(PIN_SC1); 
+  int knx2 = digitalRead(PIN_SC2); 
+  int knx3 = digitalRead(PIN_SC3); 
+  int knx4 = digitalRead(PIN_SC4);
+#endif
+
+  if(knx1 == LOW) {
     choix = 1;
   }
   
-  if(digitalRead(PIN_SC2) == LOW) {
+  if(knx2 == LOW) {
     choix = 2;
   }
   
-  if(digitalRead(PIN_SC3) == LOW) {
+  if(knx3 == LOW) {
     choix = 3;
   }
   
-  if(digitalRead(PIN_SC4) == LOW) {
+  if(knx4 == LOW) {
     choix = 4;
   }
 
-  if( (digitalRead(PIN_SC1) == HIGH) && 
-      (digitalRead(PIN_SC2) == HIGH) && 
-      (digitalRead(PIN_SC3) == HIGH) && 
-      (digitalRead(PIN_SC4) == HIGH)
+  if( (knx1 == HIGH) && 
+      (knx2 == HIGH) && 
+      (knx3 == HIGH) && 
+      (knx4 == HIGH)
     ) {
       choix = 5;
   }
@@ -171,8 +239,8 @@ void setOnePixelOfAll(float ratio, uint32_t c) {
       break;
     }
     tempTotalB += STRIPS[idxStrip]->numPixels();
-    STRIPS[idxStrip]->setPixelColor(idxPixel - tempTotalB, c);
   }
+  STRIPS[idxStrip]->setPixelColor(idxPixel - tempTotalB, c);
 }
 
 
@@ -211,6 +279,32 @@ void constrainedRainbow(int color1, int color2, float period) {
   }
 }
 
+
+/*****************************************************************
+  Lightening on n leds with a sinusoidal brightness and chase it
+  over all strips
+ *****************************************************************/
+void sinusoidalTheaterChase(int nb_leds, float period, int r, int g, int b) {
+  float timeRatio = fmod(millis(), period) / period;
+  float centerChasePix = fmod(timeRatio * totalNumLeds, totalNumLeds) / totalNumLeds;
+  float b_factor = 0;
+  Adafruit_NeoPixel strip = Adafruit_NeoPixel();
+
+  for (float i = 0; i < totalNumLeds; i++) {
+    if ( centerChasePix > (i - nb_leds)/totalNumLeds && centerChasePix < (i + nb_leds)/totalNumLeds) {
+      if (i / totalNumLeds > centerChasePix) {
+        b_factor = 1 - centerChasePix;
+      } else {
+        b_factor = centerChasePix;
+      }
+      b_factor = abs(sin(TWO_PI*b_factor));
+      setOnePixelOfAll(i / totalNumLeds, strip.Color(int(float(r)*b_factor), int(float(g)*b_factor), int(float(b)*b_factor)));
+    } else {
+      setOnePixelOfAll(i / totalNumLeds, strip.Color(20, 20, 20));
+    }
+  }
+}
+
 /*****************************************************************
   Switch one leds every n on all strip
  *****************************************************************/
@@ -225,3 +319,53 @@ void setColorOneLedEvery(int intervall, int r, int g, int b) {
     }
   }
 }
+
+/*****************************************************************
+   Color Wipe Strip
+ *****************************************************************/
+boolean colorWipeStrip(Adafruit_NeoPixel * strip, int total_time, int r, int g, int b) {
+  int intervall_time = int(total_time / strip->numPixels());
+  float timeRatio = fmod(millis(), intervall_time) / intervall_time;
+  int last_pixel = timeRatio * strip->numPixels();
+  strip->setPixelColor(last_pixel, r, g, b);
+  strip->show();
+  if (last_pixel == strip->numPixels() ){
+    return true;
+  }
+  return false;
+}
+
+
+/*****************************************************************
+   TEST MODE for Strips
+   Send 'T' by Serial to view each strips blinking
+ *****************************************************************/
+#ifdef TEST_MODE
+void testerZonesEtStrips() {
+  if (TEST_MODE == 2) {
+    char c = Serial.read();
+    if (c == 'T') {
+      testIdx++;
+      if (testIdx >= NUM_STRIPS) {
+        testIdx = 0;
+      }
+      Serial.print("============= Begin Test Strip #");
+      Serial.print(testIdx);
+      Serial.println(" ===============");
+    }
+    Serial.print("Testing Strip #"); Serial.print(testIdx); Serial.print(", ");
+    Serial.print(STRIPS[testIdx]->numPixels());
+    Serial.println(" leds");
+    SetAllStripsToColor(0, 0, 0);
+    showAllStrips();
+    delay(500);
+    setStripColor(STRIPS[testIdx], 255, 255, 0);
+    showAllStrips();
+    delay(500);
+  }
+}
+#endif
+
+
+
+
