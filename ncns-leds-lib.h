@@ -54,6 +54,9 @@ char serialInput = ' ';
 int testIdx = 0;
 #endif
 
+// on board Led
+#define TEENSY_LED 13
+
 /*****************************************************************
    Binking function for onboard LED
  *****************************************************************/
@@ -103,6 +106,31 @@ void initScenario() {
     Serial.print("Scénario "); Serial.println(choix);
   }
   firstTime = true;
+}
+
+/*****************************************************************
+ Log des entrées et du scénario en cours
+ *****************************************************************/
+void logKnxInputs(){
+    
+    int knxA, knxB, knxC, knxD;
+    
+    // Pin de pilotage des scénarii
+    knxA = digitalRead(PIN_SC1);
+    knxB = digitalRead(PIN_SC2);
+    knxC = digitalRead(PIN_SC3);
+    knxD = digitalRead(PIN_SC4);
+
+
+    Serial.print(millis()); Serial.print(" ");
+    Serial.print("KNX State (Default State 1, enclenché 0) :");
+    Serial.print("A="); Serial.print(knxA); Serial.print(" ");
+    Serial.print("B="); Serial.print(knxB); Serial.print(" ");
+    Serial.print("C="); Serial.print(knxC); Serial.print(" ");
+    Serial.print("D="); Serial.print(knxD); Serial.print(" ");
+    Serial.print("choix="); Serial.print(choix); Serial.print(" ");
+    Serial.println();
+
 }
 
 /*****************************************************************
@@ -221,6 +249,18 @@ uint32_t Wheel(byte WheelPos) {
   return strip.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
 }
 
+/*****************************************************************
+Return R,G,B from a full uint32t_c Color
+ *****************************************************************/
+uint8_t redFrom(uint32_t c) {
+    return (c >> 8);
+}
+uint8_t greenFrom(uint32_t c) {
+    return (c >> 16);
+}
+uint8_t blueFrom(uint32_t c) {
+    return (c);
+}
 
 /*****************************************************************
   Setting one pixel of the total.
@@ -306,6 +346,36 @@ void sinusoidalTheaterChase(int nb_leds, float period, int r, int g, int b) {
 }
 
 /*****************************************************************
+ Lightening on n leds with a sinusoidal brightness and chase it
+ over all strips
+ *****************************************************************/
+void sinusoidalTheaterChaseBathroom(int nb_leds, float period, int wheelColor, int whiteLevel) {
+    
+    int r = redFrom(Wheel(wheelColor));
+    int g = greenFrom(Wheel(wheelColor));
+    int b = blueFrom(Wheel(wheelColor));
+    
+    float timeRatio = fmod(millis(), period) / period;
+    float centerChasePix = fmod(timeRatio * totalNumLeds, totalNumLeds) / totalNumLeds;
+    float b_factor = 0;
+    Adafruit_NeoPixel strip = Adafruit_NeoPixel();
+    
+    for (float i = 0; i < totalNumLeds; i++) {
+        if ( centerChasePix > (i - nb_leds)/totalNumLeds && centerChasePix < (i + nb_leds)/totalNumLeds) {
+            if (i / totalNumLeds > centerChasePix) {
+                b_factor = 1 - centerChasePix;
+            } else {
+                b_factor = centerChasePix;
+            }
+            b_factor = abs(sin(TWO_PI*b_factor));
+            setOnePixelOfAll(i / totalNumLeds, strip.Color(int(float(r)*b_factor), int(float(g)*b_factor), int(float(b)*b_factor)));
+        } else {
+            setOnePixelOfAll(i / totalNumLeds, strip.Color(whiteLevel, whiteLevel, whiteLevel));
+        }
+    }
+}
+
+/*****************************************************************
   Switch one leds every n on all strip
  *****************************************************************/
 void setColorOneLedEvery(int intervall, int r, int g, int b) {
@@ -322,6 +392,7 @@ void setColorOneLedEvery(int intervall, int r, int g, int b) {
 
 /*****************************************************************
    Color Wipe Strip
+ Seems buggy ? Never return true (in bathroom context)
  *****************************************************************/
 boolean colorWipeStrip(Adafruit_NeoPixel * strip, int total_time, int r, int g, int b) {
   int intervall_time = int(total_time / strip->numPixels());
@@ -334,6 +405,24 @@ boolean colorWipeStrip(Adafruit_NeoPixel * strip, int total_time, int r, int g, 
   }
   return false;
 }
+
+/*****************************************************************
+ Color Wipe Strip
+ *****************************************************************/
+void colorWipeStripBathroom(Adafruit_NeoPixel * strip, int total_time, int color) {
+    
+    int intervall_time = int(total_time / strip->numPixels());
+    float timeRatio = fmod(millis(), intervall_time) / intervall_time;
+    int last_pixel = timeRatio * strip->numPixels();
+    uint32_t wheelColor = Wheel(color);
+    
+    for(int i = 0; i <= last_pixel; i++){
+        strip->setPixelColor(last_pixel, redFrom(wheelColor), greenFrom(wheelColor), blueFrom(wheelColor));
+    }
+    strip->show();
+    
+}
+
 
 
 /*****************************************************************
